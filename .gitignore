@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.ipynb_checkpoints/
+node_modules/
+dist/
+build/
+.next/
+.DS_Store
+*.log
