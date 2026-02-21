@@ -66,7 +66,7 @@ def load_detection_service():
     det_processor = AP.from_pretrained("IDEA-Research/grounding-dino-tiny")
     det_model = AutoModelForZeroShotObjectDetection.from_pretrained(
         "IDEA-Research/grounding-dino-tiny",
-        torch_dtype=torch.float32
+        dtype=torch.float32
     )
     MODELS["det_processor"] = det_processor
     MODELS["det_model"] = det_model
@@ -83,7 +83,7 @@ def run_detection(image, targets_text, threshold):
     results = det_processor.post_process_grounded_object_detection(
         outputs,
         inputs["input_ids"],
-        box_threshold=threshold,
+        threshold=threshold,
         text_threshold=threshold,
         target_sizes=[image.size[::-1]] # (height, width)
     )[0]
