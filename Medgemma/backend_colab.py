@@ -2,6 +2,8 @@ import os
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
 import torch
@@ -103,7 +105,26 @@ def process_dicom_bytes(file_bytes):
 
 @app.get("/")
 async def root():
-    return {"status": "online", "message": "MedGemma Colab Backend is running"}
+    # If the built frontend exists, serve it
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_dist = os.path.join(base_dir, "frontend", "dist")
+    index_path = os.path.join(frontend_dist, "index.html")
+    
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    
+    # Fallback to status message
+    return {
+        "status": "online", 
+        "message": "MedGemma Colab Backend is running",
+        "hint": "Build the frontend to see the UI: cd Medgemma/frontend && npm install && npm run build"
+    }
+
+# Mount static assets if build exists
+base_dir = os.path.dirname(os.path.abspath(__file__))
+frontend_assets = os.path.join(base_dir, "frontend", "dist", "assets")
+if os.path.exists(frontend_assets):
+    app.mount("/assets", StaticFiles(directory=frontend_assets), name="assets")
 
 @app.post("/process-upload")
 async def process_upload(file: UploadFile = File(...)):
