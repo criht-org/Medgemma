@@ -12,16 +12,25 @@ function getFileType(file) {
 
 function parseFindings(text) {
   const findings = [];
-  const regex = /FINDING:\s*(.*?)\s*LOCATION:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/gi;
+  // Resilient regex to handle markdown (**LOCATION**), extra text, and different casing
+  const regex = /(?:FINDING|LABEL|NAME):\s*(.*?)\s*(?:LOCATION|BOX|COORD):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/gi;
+
   let match;
   while ((match = regex.exec(text)) !== null) {
-    findings.push({
-      name: match[1],
-      ymin: parseFloat(match[2]),
-      xmin: parseFloat(match[3]),
-      ymax: parseFloat(match[4]),
-      xmax: parseFloat(match[5])
-    });
+    let ymin = parseFloat(match[2]);
+    let xmin = parseFloat(match[3]);
+    let ymax = parseFloat(match[4]);
+    let xmax = parseFloat(match[5]);
+
+    // Auto-normalize: If coordinates are in 0-1000 range, convert to 0-1
+    if (ymin > 1 || xmin > 1 || ymax > 1 || xmax > 1) {
+      ymin /= 1000;
+      xmin /= 1000;
+      ymax /= 1000;
+      xmax /= 1000;
+    }
+
+    findings.push({ name: match[1].replace(/\*/g, '').trim(), ymin, xmin, ymax, xmax });
   }
   return findings;
 }
@@ -128,25 +137,7 @@ function TypingBubble() {
   );
 }
 
-// ─── Thinking Block (collapsible) ─────────────────────────────────────────────
-function ThinkingBlock({ thinking }) {
-  const [open, setOpen] = useState(false);
-  if (!thinking) return null;
-  return (
-    <div className="thinking-block">
-      <button className="thinking-toggle" onClick={() => setOpen(o => !o)}>
-        <span className="thinking-icon">🧠</span>
-        <span>Model Thinking Process</span>
-        <span className="thinking-chevron">{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <div className="thinking-content">
-          <pre>{thinking}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
+// Thinking Block removed for cleaner clinical view
 
 // ─── Report Modal ─────────────────────────────────────────────────────────────
 function ReportModal({ isOpen, onClose, onSubmit, isSubmitting, onDownload }) {
@@ -208,7 +199,6 @@ function MessageRow({ msg, onReport }) {
             📄 PDF: {msg.pdf}
           </div>
         )}
-        {msg.thinking && <ThinkingBlock thinking={msg.thinking} />}
         {msg.content && (
           <div className={`bubble ${isLocalization ? 'bubble-mono' : ''} ${isConsultation && !isUser ? 'bubble-consultation' : ''}`}>
             {msg.content}
@@ -262,6 +252,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [pendingFile, setPendingFile] = useState(null);
+  const [activeFile, setActiveFile] = useState(null); // Persist file across turns
   const [isTyping, setIsTyping] = useState(false);
   const [backendUrl, setBackendUrl] = useState(localStorage.getItem('backend_url') || '');
   const [hfToken, setHfToken] = useState(localStorage.getItem('hf_token') || '');
@@ -314,7 +305,9 @@ export default function App() {
     if (!file) return;
     const type = getFileType(file);
     const preview = (type === 'image') ? URL.createObjectURL(file) : null;
-    setPendingFile({ file, type, preview, name: file.name });
+    const fileObj = { file, type, preview, name: file.name };
+    setPendingFile(fileObj);
+    setActiveFile(fileObj);
   };
 
   const handleFileChange = (e) => handleFile(e.target.files[0]);
@@ -361,7 +354,10 @@ export default function App() {
       formData.append('model_name', modelName);
       formData.append('hf_token', hfToken);
       formData.append('analysis_mode', analysisMode);
-      if (fileToSend?.file) formData.append('file', fileToSend.file);
+
+      // Use pending file if available, otherwise fallback to activeFile for memory
+      const fileContext = fileToSend || activeFile;
+      if (fileContext?.file) formData.append('file', fileContext.file);
 
       // Send conversation history for multi-turn context
       const historyForBackend = messages
@@ -400,9 +396,8 @@ export default function App() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.response,
-        thinking: data.thinking || '',
         full_output: data.full_output,
-        prompt: prompt, // Store the prompt for reporting
+        prompt: prompt,
         isLocalization: analysisMode === 'Localization',
         isConsultation: analysisMode === 'Patient Consultation'
       }]);

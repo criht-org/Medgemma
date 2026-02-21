@@ -713,61 +713,7 @@ body {
   border-color: rgba(16, 185, 129, 0.2) !important;
 }
 
-/* ─── Thinking Block ─────────────────────────────────────────────────── */
-.thinking-block {
-  max-width: 520px;
-  margin-bottom: 0.4rem;
-}
-
-.thinking-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: rgba(167, 139, 250, 0.08);
-  border: 1px solid rgba(167, 139, 250, 0.2);
-  border-radius: var(--radius-sm);
-  padding: 7px 14px;
-  color: var(--accent-2);
-  font-size: 0.8rem;
-  font-weight: 500;
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-  transition: background 0.2s;
-}
-
-.thinking-toggle:hover {
-  background: rgba(167, 139, 250, 0.14);
-}
-
-.thinking-icon {
-  font-size: 1rem;
-}
-
-.thinking-chevron {
-  margin-left: auto;
-  font-size: 0.65rem;
-  opacity: 0.6;
-}
-
-.thinking-content {
-  background: rgba(167, 139, 250, 0.05);
-  border: 1px solid rgba(167, 139, 250, 0.15);
-  border-top: none;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  padding: 1rem;
-  max-height: 280px;
-  overflow-y: auto;
-}
-
-.thinking-content pre {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 0.78rem;
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-}
+/* Thinking Block styles removed */
 
 /* ─── Localization Mono Bubble ───────────────────────────────────────── */
 .bubble-mono {

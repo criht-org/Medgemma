@@ -34,7 +34,9 @@ MODELS = {
     "tokenizer": None,
     "processor": None,
     "model": None,
-    "current_model_name": None
+    "current_model_name": None,
+    "det_processor": None,
+    "det_model": None
 }
 
 class ChatRequest(BaseModel):
@@ -54,6 +56,39 @@ class ReportRequest(BaseModel):
 
 # --- Helper Functions (Ported from app.py) ---
 
+
+def load_detection_service():
+    if MODELS["det_model"] is not None:
+        return MODELS["det_processor"], MODELS["det_model"]
+
+    print("Loading Grounding DINO for Object Detection...")
+    from transformers import AutoProcessor as AP, AutoModelForZeroShotObjectDetection
+    det_processor = AP.from_pretrained("IDEA-Research/grounding-dino-tiny")
+    det_model = AutoModelForZeroShotObjectDetection.from_pretrained(
+        "IDEA-Research/grounding-dino-tiny",
+        torch_dtype=torch.float32
+    )
+    MODELS["det_processor"] = det_processor
+    MODELS["det_model"] = det_model
+    return det_processor, det_model
+
+def run_detection(image, targets_text, threshold):
+    det_processor, det_model = load_detection_service()
+    text_prompt = targets_text.strip().rstrip(".") + "."
+    inputs = det_processor(images=image, text=text_prompt, return_tensors="pt")
+    
+    with torch.no_grad():
+        outputs = det_model(**inputs)
+    
+    results = det_processor.post_process_grounded_object_detection(
+        outputs,
+        inputs["input_ids"],
+        box_threshold=threshold,
+        text_threshold=threshold,
+        target_sizes=[image.size[::-1]] # (height, width)
+    )[0]
+    return results
+
 def load_medgemma_service(name: str, token: str):
     if MODELS["current_model_name"] == name and MODELS["model"] is not None:
         return MODELS["tokenizer"], MODELS["processor"], MODELS["model"]
@@ -61,7 +96,7 @@ def load_medgemma_service(name: str, token: str):
     print(f"Loading model: {name}...")
     tokenizer = AutoTokenizer.from_pretrained(name, token=token)
     try:
-        processor = AutoProcessor.from_pretrained(name, token=token)
+        processor = AutoProcessor.from_pretrained(name, token=token, use_fast=False)
     except:
         processor = None
 
@@ -76,7 +111,7 @@ def load_medgemma_service(name: str, token: str):
         name,
         quantization_config=q,
         token=token,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
         device_map="auto" if torch.cuda.is_available() else None
     )
     
@@ -255,6 +290,7 @@ async def chat(
                 msgs.append({"role": turn["role"] if turn["role"] != "assistant" else "model", "content": turn["content"]})
             msgs.append({"role": "user", "content": full_p})
 
+
         # ── Load image if provided ──────────────────────────────────────────
         img = None
         if file:
@@ -263,6 +299,28 @@ async def chat(
                 img = Image.open(io.BytesIO(raw)).convert("RGB")
             elif file.filename and (file.filename.lower().endswith(".dcm") or file.content_type == "application/dicom"):
                 img, _ = process_dicom_bytes(raw)
+
+        # ── Pre-process: Object Detection (Grounding DINO) ────────────────────
+        detection_results_text = ""
+        if img and analysis_mode == "Localization":
+            try:
+                # Default targets for medical imaging
+                targets = "tumor, nodule, mass, lesion, fracture, opacity, effusion"
+                results = run_detection(img, targets, 0.3)
+                
+                if len(results["boxes"]) > 0:
+                    detection_results_text = "\n[Detection Context]: The following regions were pre-screened:\n"
+                    for box, score, label in zip(results["boxes"], results["scores"], results["labels"]):
+                        # Convert absolute pixels to normalized 0-1 for model context
+                        w, h = img.size
+                        y0, x0, y1, x1 = box.tolist()
+                        norm_box = [round(y0/h, 3), round(x0/w, 3), round(y1/h, 3), round(x1/w, 3)]
+                        detection_results_text += f"FINDING: {label} LOCATION: {norm_box} (Confidence: {score:.0%})\n"
+                    
+                    # Inject detection results into the prompt to "help" the model
+                    msgs[-1]["content"] += f"\n\nPre-detection hints (verify these):\n{detection_results_text}"
+            except Exception as e:
+                print(f"Detection error (skipping): {e}")
 
         # ── Build model inputs ────────────────────────────────────────────────
         if img and proc:
@@ -296,17 +354,26 @@ async def chat(
         thinking_text = ""
         response_text = full_output
 
-        # Handle explicit <thinking>...</thinking> blocks
-        think_match = re.search(r"<thinking>(.*?)</thinking>(.*)", full_output, re.DOTALL | re.IGNORECASE)
-        if think_match:
-            thinking_text = think_match.group(1).strip()
-            response_text = think_match.group(2).strip()
+        # Handle Gemma 3 thinking tokens (<unused95> ... <unused94>)
+        gemma3_think = re.search(r"<unused95>(.*?)<unused94>(.*)", full_output, re.DOTALL | re.IGNORECASE)
+        if gemma3_think:
+            thinking_text = gemma3_think.group(1).strip()
+            response_text = gemma3_think.group(2).strip()
         else:
-            # Some models use "Thinking:" prefix without tags
-            think_prefix = re.match(r"^(Thinking:.*?\n\n)(.*)", full_output, re.DOTALL | re.IGNORECASE)
-            if think_prefix:
-                thinking_text = think_prefix.group(1).strip()
-                response_text = think_prefix.group(2).strip()
+            # Handle explicit <thinking>...</thinking> blocks
+            think_match = re.search(r"<thinking>(.*?)</thinking>(.*)", full_output, re.DOTALL | re.IGNORECASE)
+            if think_match:
+                thinking_text = think_match.group(1).strip()
+                response_text = think_match.group(2).strip()
+            else:
+                # Some models use "Thinking:" prefix without tags
+                think_prefix = re.match(r"^(Thinking:.*?\n\n)(.*)", full_output, re.DOTALL | re.IGNORECASE)
+                if think_prefix:
+                    thinking_text = think_prefix.group(1).strip()
+                    response_text = think_prefix.group(2).strip()
+
+        # Final cleanup for any stray tokens in the response
+        response_text = re.sub(r"<(/?)(thinking|unused94|unused95|thought)>", "", response_text, flags=re.IGNORECASE).strip()
 
         return {
             "response": response_text,
