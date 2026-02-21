@@ -44,6 +44,14 @@ class ChatRequest(BaseModel):
     analysis_mode: Optional[str] = "General Analysis"
     pdf_text: Optional[str] = None
 
+class ReportRequest(BaseModel):
+    prompt: Optional[str] = None
+    response: Optional[str] = None
+    thinking: Optional[str] = None
+    metadata: Optional[dict] = None
+    image_b64: Optional[str] = None # Base64 encoded image
+    user_comment: Optional[str] = None
+
 # --- Helper Functions (Ported from app.py) ---
 
 def load_medgemma_service(name: str, token: str):
@@ -84,11 +92,35 @@ def process_dicom_bytes(file_bytes):
         with io.BytesIO(file_bytes) as f:
             ds = pydicom.dcmread(f)
         
-        pixel_array = apply_voi_lut(ds.pixel_array, ds) if hasattr(ds, 'WindowCenter') else ds.pixel_array
-        if hasattr(ds, 'RescaleIntercept') and hasattr(ds, 'RescaleSlope'):
+        pixel_array = ds.pixel_array
+        
+        # 1. Handle VOI LUT / Windowing
+        if hasattr(ds, 'WindowCenter') and hasattr(ds, 'WindowWidth'):
+            pixel_array = apply_voi_lut(pixel_array, ds)
+        elif hasattr(ds, 'RescaleIntercept') and hasattr(ds, 'RescaleSlope'):
             pixel_array = pixel_array * ds.RescaleSlope + ds.RescaleIntercept
         
-        pixel_array = ((pixel_array - pixel_array.min()) / (pixel_array.max() - pixel_array.min() + 1e-7) * 255).astype(np.uint8)
+        # 2. Robust Shape Handling
+        pixel_array = np.squeeze(pixel_array) # Remove (1, 512, 512) -> (512, 512)
+        
+        if pixel_array.ndim == 3:
+            # If it's a volume (Slices, H, W), pick the middle slice
+            pixel_array = pixel_array[pixel_array.shape[0] // 2]
+        elif pixel_array.ndim == 1:
+            # If it's a 1D signal, reshape to a square if possible or a thin strip
+            side = int(len(pixel_array)**0.5)
+            if side * side == len(pixel_array):
+                pixel_array = pixel_array.reshape((side, side))
+            else:
+                pixel_array = pixel_array.reshape((1, -1))
+
+        # 3. Normalize to uint8
+        p_min, p_max = pixel_array.min(), pixel_array.max()
+        if p_max > p_min:
+            pixel_array = ((pixel_array - p_min) / (p_max - p_min) * 255).astype(np.uint8)
+        else:
+            pixel_array = np.zeros_like(pixel_array, dtype=np.uint8)
+            
         img = Image.fromarray(pixel_array).convert("RGB")
         
         meta = {
@@ -173,16 +205,13 @@ async def chat(
 
         mode_prompts = {
             "Localization": (
-                "You are an expert radiologist. Carefully examine the provided medical image.\n"
-                "For each significant finding, provide:\n"
-                "1. Finding name\n"
-                "2. Normalized bounding box coordinates as [y_min, x_min, y_max, x_max] "
-                "(values between 0.0 and 1.0 relative to image dimensions)\n"
-                "3. Brief description\n\n"
-                "Format each finding as:\n"
-                "FINDING: <name>\n"
+                "You are an expert radiologist. Analyze the image and identify findings.\n"
+                "CRITICAL: For every finding, you MUST provide coordinates in the exact format:\n"
+                "FINDING: <Name>\n"
                 "LOCATION: [y_min, x_min, y_max, x_max]\n"
-                "DESCRIPTION: <brief description>\n"
+                "DESCRIPTION: <Brief explanation>\n\n"
+                "Use normalized coordinates (0.0 to 1.0). "
+                "The UI will use these to draw boxes directly on the image.\n"
             ),
             "Radiology Report": (
                 "You are an expert radiologist. Write a detailed, structured radiology report.\n"
@@ -190,20 +219,14 @@ async def chat(
                 "CLINICAL INDICATION:\nTECHNIQUE:\nFINDINGS:\nIMPRESSION:\nRECOMMENDATIONS:\n"
             ),
             "Patient Consultation": (
-                "You are a compassionate and highly experienced clinician conducting a structured "
-                "patient intake consultation.\n\n"
-                "Your approach:\n"
-                "- Greet the patient warmly and professionally.\n"
-                "- Ask ONE focused, open-ended leading question at a time — never ask multiple questions at once.\n"
-                "- Systematically gather clinical history using a logical sequence:\n"
-                "  Chief Complaint → History of Present Illness → Duration & Onset → "
-                "  Severity (1-10 scale) → Associated Symptoms → Aggravating/Relieving Factors → "
-                "  Past Medical History → Medications → Family History → Social History.\n"
-                "- Acknowledge the patient's response empathetically before asking the next question.\n"
-                "- Use simple, plain language a patient can understand (avoid medical jargon).\n"
-                "- When you have gathered sufficient history, end with a brief clinical summary "
-                "and possible next steps.\n\n"
-                "Begin the consultation now."
+                "You are a compassionate doctor conducting a patient intake.\n"
+                "STRICT RULES:\n"
+                "1. Ask EXACTLY ONE short, leading question at a time.\n"
+                "2. DO NOT provide summaries, diagnosis, or long explanations yet.\n"
+                "3. Focus on building the patient's history (Chief Complaint -> HPI -> Symptoms -> History).\n"
+                "4. Be empathetic but move the consultation forward with your next question.\n"
+                "5. Only when you have a full picture (after 5-8 turns), provide a 'Clinical Impression'.\n\n"
+                "Begin by introducing yourself and asking why they are seeking help today."
             ),
         }
 
@@ -293,6 +316,49 @@ async def chat(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/report")
+async def report(req: ReportRequest):
+    """
+    Receives a reported case from the user.
+    In a real-world scenario, you would send this to your email, 
+    a Discord webhook, or a database.
+    """
+    try:
+        # 1. Log to local Colab console (developer can see it in logs)
+        print("\n" + "="*50)
+        print("🚩 NEW CASE REPORTED")
+        print(f"Prompt: {req.prompt[:100]}...")
+        print(f"Comment: {req.user_comment}")
+        print("="*50 + "\n")
+
+        # 2. Save locally in Colab for the developer to download later
+        report_dir = "Medgemma_reports"
+        os.makedirs(report_dir, exist_ok=True)
+        
+        import time
+        report_id = int(time.time())
+        report_path = os.path.join(report_dir, f"report_{report_id}.json")
+        
+        with open(report_path, "w") as f:
+            f.write(req.json(indent=2))
+
+        # 3. (Optional) Forward to a central Webhook if configured
+        webhook_url = os.getenv("REPORT_WEBHOOK_URL")
+        if webhook_url:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                # We send a truncated version to Discord for speed
+                payload = {
+                    "content": f"🩺 **New MedGemma Report**\n**Comment:** {req.user_comment}\n**Prompt:** {req.prompt[:500]}",
+                    "username": "MedGemma Reporter"
+                }
+                await client.post(webhook_url, json=payload)
+
+        return {"status": "success", "message": "Report received. Thank you for your feedback!"}
+    except Exception as e:
+        print(f"Report error: {e}")
+        return {"status": "partial_success", "message": "Report saved locally but failed to send to webhook."}
 
 
 if __name__ == "__main__":

@@ -10,18 +10,70 @@ function getFileType(file) {
   return 'unknown';
 }
 
+function parseFindings(text) {
+  const findings = [];
+  const regex = /FINDING:\s*(.*?)\s*LOCATION:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/gi;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    findings.push({
+      name: match[1],
+      ymin: parseFloat(match[2]),
+      xmin: parseFloat(match[3]),
+      ymax: parseFloat(match[4]),
+      xmax: parseFloat(match[5])
+    });
+  }
+  return findings;
+}
+
 // ─── Sub-Components ────────────────────────────────────────────────────────────
-function ImageCard({ src, alt = "Medical Scan" }) {
+function ImageCard({ src, alt = "Medical Scan", findings = [] }) {
   const [lightbox, setLightbox] = useState(false);
+  const containerRef = useRef(null);
+
+  const renderOverlays = () => {
+    if (!findings || findings.length === 0) return null;
+    return (
+      <svg className="localization-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
+        {findings.map((f, i) => (
+          <g key={i}>
+            <rect
+              x={f.xmin * 100}
+              y={f.ymin * 100}
+              width={(f.xmax - f.xmin) * 100}
+              height={(f.ymax - f.ymin) * 100}
+              className="finding-box"
+            />
+            <text
+              x={f.xmin * 100}
+              y={f.ymin * 100 - 2}
+              className="finding-label"
+              fontSize="3.5"
+            >
+              {f.name}
+            </text>
+          </g>
+        ))}
+      </svg>
+    );
+  };
+
   return (
     <>
       <div className="image-preview-card" onClick={() => setLightbox(true)} title="Click to expand">
-        <img src={src} alt={alt} />
+        <div style={{ position: 'relative' }}>
+          <img src={src} alt={alt} style={{ display: 'block' }} />
+          {renderOverlays()}
+        </div>
         <span className="expand-hint">🔍 Expand</span>
+        {findings.length > 0 && <div className="findings-indicator">📍 {findings.length} Findings Detected</div>}
       </div>
       {lightbox && (
         <div className="lightbox-overlay" onClick={() => setLightbox(false)}>
-          <img src={src} alt={alt} />
+          <div style={{ position: 'relative', maxWidth: '90vw', maxHeight: '90vh' }}>
+            <img src={src} alt={alt} />
+            {renderOverlays()}
+          </div>
         </div>
       )}
     </>
@@ -96,10 +148,50 @@ function ThinkingBlock({ thinking }) {
   );
 }
 
-function MessageRow({ msg }) {
+// ─── Report Modal ─────────────────────────────────────────────────────────────
+function ReportModal({ isOpen, onClose, onSubmit, isSubmitting, onDownload }) {
+  const [comment, setComment] = useState('');
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Report Errors</h2>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Report inaccuracies to the developer and download the case data for manual sharing.
+          </p>
+        </div>
+        <div className="modal-body">
+          <textarea
+            className="report-textarea"
+            placeholder="Describe the error or inaccuracy..."
+            value={comment}
+            onChange={e => setComment(e.target.value)}
+          />
+        </div>
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
+          <button className="btn-secondary" style={{ color: 'var(--accent)' }} onClick={() => onDownload(comment)} disabled={isSubmitting}>
+            📥 Download Case
+          </button>
+          <button className="btn-primary" onClick={() => onSubmit(comment)} disabled={isSubmitting}>
+            {isSubmitting ? 'Submitting...' : 'Submit Report'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MessageRow({ msg, onReport }) {
   const isUser = msg.role === 'user';
   const isLocalization = msg.isLocalization;
   const isConsultation = msg.isConsultation;
+  const isAssistant = msg.role === 'assistant';
+
+  const findings = !isUser ? parseFindings(msg.content) : [];
+
   return (
     <div className={`msg-row ${msg.role}`}>
       <div className={`avatar ${isUser ? 'user' : 'ai'} ${isConsultation ? 'ai-doctor' : ''}`}>
@@ -109,7 +201,7 @@ function MessageRow({ msg }) {
         {isConsultation && !isUser && (
           <div className="consultation-badge">🩺 Patient Consultation</div>
         )}
-        {msg.img && <ImageCard src={msg.img} />}
+        {msg.img && <ImageCard src={msg.img} findings={findings} />}
         {msg.dicom && <DicomCard filename={msg.dicom.filename} meta={msg.dicom.meta} />}
         {msg.pdf && (
           <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', padding: '8px 0' }}>
@@ -120,6 +212,14 @@ function MessageRow({ msg }) {
         {msg.content && (
           <div className={`bubble ${isLocalization ? 'bubble-mono' : ''} ${isConsultation && !isUser ? 'bubble-consultation' : ''}`}>
             {msg.content}
+          </div>
+        )}
+        {isAssistant && !isUser && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button className="report-btn" onClick={() => onReport(msg)}>
+              🚩 Report Errors
+            </button>
+            {msg.reported && <span className="report-success-msg">✓ Reported</span>}
           </div>
         )}
       </div>
@@ -169,6 +269,8 @@ export default function App() {
   const [analysisMode, setAnalysisMode] = useState('General Analysis');
   const [backendStatus, setBackendStatus] = useState('unchecked'); // unchecked | online | offline
   const [isDragging, setIsDragging] = useState(false);
+  const [reportingMsg, setReportingMsg] = useState(null); // The message object being reported
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
   const fileInputRef = useRef(null);
   const textareaRef = useRef(null);
@@ -299,6 +401,8 @@ export default function App() {
         role: 'assistant',
         content: data.response,
         thinking: data.thinking || '',
+        full_output: data.full_output,
+        prompt: prompt, // Store the prompt for reporting
         isLocalization: analysisMode === 'Localization',
         isConsultation: analysisMode === 'Patient Consultation'
       }]);
@@ -310,6 +414,63 @@ export default function App() {
     } finally {
       setIsTyping(false);
     }
+  };
+
+  // ── Reporting Logic ──────────────────────────────────────────────────────────
+  const handleReportSubmit = async (comment) => {
+    if (!reportingMsg) return;
+    setIsSubmittingReport(true);
+    try {
+      const payload = {
+        prompt: reportingMsg.prompt || "No prompt stored",
+        response: reportingMsg.content,
+        thinking: reportingMsg.thinking,
+        user_comment: comment,
+        metadata: {
+          model: modelName,
+          mode: analysisMode,
+          timestamp: new Date().toISOString()
+        }
+      };
+
+      const res = await fetch(apiUrl('/report'), {
+        method: 'POST',
+        headers: { ...ngrokHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error(await res.text());
+
+      // Update message status to "reported"
+      setMessages(prev => prev.map(m => m === reportingMsg ? { ...m, reported: true } : m));
+      setReportingMsg(null);
+    } catch (err) {
+      alert(`Failed to send report: ${err.message}`);
+    } finally {
+      setIsSubmittingReport(false);
+    }
+  };
+
+  const handleDownloadReport = (comment) => {
+    if (!reportingMsg) return;
+    const payload = {
+      prompt: reportingMsg.prompt || "No prompt stored",
+      response: reportingMsg.content,
+      thinking: reportingMsg.thinking,
+      user_comment: comment,
+      metadata: {
+        model: modelName,
+        mode: analysisMode,
+        timestamp: new Date().toISOString()
+      }
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `medgemma_err_report_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleKeyDown = (e) => {
@@ -379,7 +540,13 @@ export default function App() {
             onClick={() => setMessages([])}>🗑 Clear Chat</button>
         </div>
 
-        <div className="sidebar-footer">✨ Developed by Dr. R. K. Ramanan</div>
+        <div className="sidebar-footer">
+          <div>✨ Developed by Dr. R. K. Ramanan</div>
+          <div style={{ marginTop: '8px' }}>
+            <a href="http://www.c-riht.org" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none', fontSize: '0.72rem' }}>www.c-riht.org</a>
+          </div>
+          <div style={{ marginTop: '4px', fontSize: '0.7rem', opacity: 0.8 }}>c.riht.org@gmail.com</div>
+        </div>
       </aside>
 
       {/* ── Main Panel ──────────────────────────────────────────────────────── */}
@@ -395,11 +562,20 @@ export default function App() {
           <WelcomeScreen onPrompt={setQuickPrompt} />
         ) : (
           <div className="messages-area">
-            {messages.map((msg, i) => <MessageRow key={i} msg={msg} />)}
+            {messages.map((msg, i) => <MessageRow key={i} msg={msg} onReport={setReportingMsg} />)}
             {isTyping && <TypingBubble />}
             <div ref={chatEndRef} />
           </div>
         )}
+
+        {/* ── Modals ─────────────────────────────────────────────────────── */}
+        <ReportModal
+          isOpen={!!reportingMsg}
+          onClose={() => setReportingMsg(null)}
+          onSubmit={handleReportSubmit}
+          isSubmitting={isSubmittingReport}
+          onDownload={handleDownloadReport}
+        />
 
         {/* ── Input Area ──────────────────────────────────────────────────── */}
         <div className="input-area">

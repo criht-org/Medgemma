@@ -638,6 +638,54 @@ body {
   }
 }
 
+/* ─── Localization Overlays ─────────────────────────────────────────── */
+.localization-svg {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.finding-box {
+  fill: rgba(244, 114, 182, 0.15);
+  stroke: var(--accent-3);
+  stroke-width: 0.5;
+  vector-effect: non-scaling-stroke;
+  animation: box-glow 2s infinite ease-in-out;
+}
+
+.finding-label {
+  fill: var(--accent-3);
+  font-weight: 600;
+  font-family: 'Outfit', sans-serif;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+
+@keyframes box-glow {
+
+  0%,
+  100% {
+    stroke-opacity: 0.6;
+    fill-opacity: 0.1;
+  }
+
+  50% {
+    stroke-opacity: 1;
+    fill-opacity: 0.25;
+  }
+}
+
+.findings-indicator {
+  padding: 6px 12px;
+  background: var(--bg-card);
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--accent-3);
+  font-weight: 600;
+}
+
 /* ─── Patient Consultation Styles ────────────────────────────────────── */
 .avatar.ai-doctor {
   background: linear-gradient(135deg, #10b981, #059669);
@@ -743,4 +791,101 @@ body {
 .messages-area::-webkit-scrollbar-thumb {
   background: var(--border);
   border-radius: 10px;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.btn-secondary {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0.6rem 1.2rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.btn-primary {
+  background: var(--accent-3);
+  color: white;
+  border: none;
+  padding: 0.6rem 1.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+/* ─── Reporting & Feedback ───────────────────────────────────────────── */
+.report-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-subtle);
+  font-size: 0.72rem;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  align-self: flex-start;
+  margin-top: 4px;
+}
+
+.report-btn:hover {
+  background: rgba(244, 114, 182, 0.1);
+  border-color: rgba(244, 114, 182, 0.3);
+  color: var(--accent-3);
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 2rem;
+}
+
+.modal-content {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 500px;
+  padding: 2rem;
+  box-shadow: var(--shadow);
+}
+
+.modal-header h2 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: var(--accent-3);
+}
+
+.modal-body {
+  margin: 1.5rem 0;
+}
+
+.report-textarea {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1rem;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  min-height: 100px;
+}
+
+.report-success-msg {
+  color: #4ade80;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+  animation: pulse 2s infinite;
 }

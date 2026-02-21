@@ -339,13 +339,28 @@ if uploaded_file:
         else:
             ds = pydicom.dcmread(uploaded_file)
             pixel_array = ds.pixel_array.astype(np.float32)
+            
+            # 1. Handle Windowing (if present)
             if hasattr(ds, 'WindowCenter') and hasattr(ds, 'WindowWidth'):
                 wc = float(ds.WindowCenter[0]) if isinstance(ds.WindowCenter, pydicom.multival.MultiValue) else float(ds.WindowCenter)
                 ww = float(ds.WindowWidth[0]) if isinstance(ds.WindowWidth, pydicom.multival.MultiValue) else float(ds.WindowWidth)
-                img_min = wc - ww / 2
-                img_max = wc + ww / 2
-                pixel_array = np.clip(pixel_array, img_min, img_max)
-            pixel_array = ((pixel_array - pixel_array.min()) / (pixel_array.max() - pixel_array.min() + 1e-8) * 255).astype(np.uint8)
+                pixel_array = np.clip(pixel_array, wc - ww/2, wc + ww/2)
+            
+            # 2. Robust Shape Handling
+            pixel_array = np.squeeze(pixel_array)
+            if pixel_array.ndim == 3:
+                pixel_array = pixel_array[pixel_array.shape[0] // 2]
+            elif pixel_array.ndim == 1:
+                side = int(len(pixel_array)**0.5)
+                pixel_array = pixel_array.reshape((side, side)) if side*side == len(pixel_array) else pixel_array.reshape((1, -1))
+
+            # 3. Normalize
+            p_min, p_max = pixel_array.min(), pixel_array.max()
+            if p_max > p_min:
+                pixel_array = ((pixel_array - p_min) / (p_max - p_min) * 255).astype(np.uint8)
+            else:
+                pixel_array = np.zeros_like(pixel_array, dtype=np.uint8)
+
             image_data = Image.fromarray(pixel_array).convert("RGB")
             st.session_state.current_image = image_data
             dicom_info = []
