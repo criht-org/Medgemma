@@ -13,7 +13,7 @@ function getFileType(file) {
 function parseFindings(text) {
   const findings = [];
   // Resilient regex to handle markdown (**LOCATION**), extra text, and different casing
-  const regex = /(?:FINDING|LABEL|NAME):\s*(.*?)\s*(?:LOCATION|BOX|COORD):\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/gi;
+  const regex = /(?:FINDING|LABEL|NAME):\s*\**?(.*?)\**?\s*(?:LOCATION|BOX|COORD):\s*\**?\[\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\]\**?/gi;
 
   let match;
   while ((match = regex.exec(text)) !== null) {
@@ -399,7 +399,11 @@ export default function App() {
         full_output: data.full_output,
         prompt: prompt,
         isLocalization: analysisMode === 'Localization',
-        isConsultation: analysisMode === 'Patient Consultation'
+        isConsultation: analysisMode === 'Patient Consultation',
+        // Ensure image/dicom context persists for overlay rendering
+        img: userMsg.img,
+        dicom: userMsg.dicom,
+        pdf: userMsg.pdf
       }]);
     } catch (err) {
       setMessages(prev => [...prev, {
@@ -508,8 +512,10 @@ export default function App() {
         <div className="sidebar-section">
           <h3>Model</h3>
           <select id="model-select" className="sidebar-select" value={modelName} onChange={e => setModelName(e.target.value)}>
+            <option value="google/medgemma-1.5-1b-it">MedGemma 1.5-1B (Low VRAM)</option>
             <option value="google/medgemma-1.5-4b-it">MedGemma 1.5-4B</option>
             <option value="google/medgemma-4b-it">MedGemma 4B</option>
+            <option value="unsloth/medgemma-4b-it-GGUF">MedGemma 4B (Unsloth GGUF)</option>
             <option value="google/medgemma-27b-it">MedGemma 27B</option>
           </select>
         </div>

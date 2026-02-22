@@ -61,22 +61,28 @@ def load_detection_service():
     if MODELS["det_model"] is not None:
         return MODELS["det_processor"], MODELS["det_model"]
 
-    print("Loading Grounding DINO for Object Detection...")
+    print("Loading Grounding DINO for Object Detection (GPU preferred)...")
     from transformers import AutoProcessor as AP, AutoModelForZeroShotObjectDetection
     det_processor = AP.from_pretrained("IDEA-Research/grounding-dino-tiny")
+    
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     det_model = AutoModelForZeroShotObjectDetection.from_pretrained(
         "IDEA-Research/grounding-dino-tiny",
         dtype=torch.float32
-    )
+    ).to(device)
+    
     MODELS["det_processor"] = det_processor
     MODELS["det_model"] = det_model
     return det_processor, det_model
 
 def run_detection(image, targets_text, threshold):
     det_processor, det_model = load_detection_service()
-    text_prompt = targets_text.strip().rstrip(".") + "."
-    inputs = det_processor(images=image, text=text_prompt, return_tensors="pt")
+    device = det_model.device
     
+    text_prompt = targets_text.strip().rstrip(".") + "."
+    inputs = det_processor(images=image, text=text_prompt, return_tensors="pt").to(device)
+    
+    print(f"Running detection for: {text_prompt}")
     with torch.no_grad():
         outputs = det_model(**inputs)
     
@@ -87,6 +93,11 @@ def run_detection(image, targets_text, threshold):
         text_threshold=threshold,
         target_sizes=[image.size[::-1]] # (height, width)
     )[0]
+    
+    print(f"Detection results: Found {len(results['boxes'])} regions.")
+    for score, label in zip(results["scores"], results["labels"]):
+        print(f" - Found {label}: {score:.2f}")
+        
     return results
 
 def load_medgemma_service(name: str, token: str):
@@ -94,26 +105,69 @@ def load_medgemma_service(name: str, token: str):
         return MODELS["tokenizer"], MODELS["processor"], MODELS["model"]
 
     print(f"Loading model: {name}...")
-    tokenizer = AutoTokenizer.from_pretrained(name, token=token)
-    try:
-        processor = AutoProcessor.from_pretrained(name, token=token, use_fast=False)
-    except:
-        processor = None
+    
+    # Handle GGUF Models
+    if "GGUF" in name:
+        from huggingface_hub import hf_hub_download
+        print(f"Detected GGUF model. Downloading quantized weights...")
+        
+        # Unsloth GGUF filenames can vary (e.g., medgemma-3-4b-it-UD-Q8_K_XL.gguf)
+        # We'll try to find any .gguf file that isn't a projector (mmproj)
+        from huggingface_hub import list_repo_files
+        try:
+            files = list_repo_files(name, token=token)
+            gguf_files = [f for f in files if f.endswith(".gguf") and "mmproj" not in f]
+            if not gguf_files:
+                raise Exception("No GGUF file found in repo")
+            gguf_filename = gguf_files[0]
+            print(f"Found GGUF file: {gguf_filename}")
+            model_path = hf_hub_download(repo_id=name, filename=gguf_filename, token=token)
+        except Exception as e:
+            print(f"Dynamic search failed: {e}. Trying fallback...")
+            gguf_filename = "medgemma-4b-it-Q4_K_M.gguf"
+            try:
+                model_path = hf_hub_download(repo_id=name, filename=gguf_filename, token=token)
+            except:
+                raise HTTPException(status_code=500, detail=f"GGUF file not found. Checked: {name}")
 
-    q = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_use_double_quant=True
-    ) if torch.cuda.is_available() else None
+        tokenizer = AutoTokenizer.from_pretrained(name, token=token)
+        try:
+            # For vision support, we often need the processor from the base model 
+            # if not fully included in the GGUF repo
+            processor = AutoProcessor.from_pretrained(name, token=token, use_fast=False)
+        except:
+            # Fallback to the non-GGUF version for processor if needed
+            base_model = name.replace("-GGUF", "")
+            processor = AutoProcessor.from_pretrained(base_model, token=token, use_fast=False)
 
-    model = AutoModelForCausalLM.from_pretrained(
-        name,
-        quantization_config=q,
-        token=token,
-        dtype=torch.bfloat16,
-        device_map="auto" if torch.cuda.is_available() else None
-    )
+        model = AutoModelForCausalLM.from_pretrained(
+            name,
+            gguf_file=model_path,
+            token=token,
+            device_map="auto" if torch.cuda.is_available() else None,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32
+        )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(name, token=token)
+        try:
+            processor = AutoProcessor.from_pretrained(name, token=token, use_fast=False)
+        except:
+            processor = None
+
+        q = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_use_double_quant=True
+        ) if torch.cuda.is_available() else None
+
+        model = AutoModelForCausalLM.from_pretrained(
+            name,
+            quantization_config=q,
+            token=token,
+            dtype=torch.bfloat16,
+            device_map="auto" if torch.cuda.is_available() else None
+        )
     
     MODELS["tokenizer"] = tokenizer
     MODELS["processor"] = processor
@@ -309,16 +363,16 @@ async def chat(
                 results = run_detection(img, targets, 0.3)
                 
                 if len(results["boxes"]) > 0:
-                    detection_results_text = "\n[Detection Context]: The following regions were pre-screened:\n"
+                    detection_results_text = "\n[Initial Detection Context]:\n"
                     for box, score, label in zip(results["boxes"], results["scores"], results["labels"]):
                         # Convert absolute pixels to normalized 0-1 for model context
                         w, h = img.size
-                        y0, x0, y1, x1 = box.tolist()
+                        x0, y0, x1, y1 = box.tolist() # DINO returns [xmin, ymin, xmax, ymax]
                         norm_box = [round(y0/h, 3), round(x0/w, 3), round(y1/h, 3), round(x1/w, 3)]
-                        detection_results_text += f"FINDING: {label} LOCATION: {norm_box} (Confidence: {score:.0%})\n"
+                        detection_results_text += f"FINDING: {label.upper()}\nLOCATION: {norm_box}\n"
                     
                     # Inject detection results into the prompt to "help" the model
-                    msgs[-1]["content"] += f"\n\nPre-detection hints (verify these):\n{detection_results_text}"
+                    msgs[-1]["content"] += f"\n\nPre-detection hints (verify and refine these in your response):\n{detection_results_text}"
             except Exception as e:
                 print(f"Detection error (skipping): {e}")
 
@@ -373,7 +427,9 @@ async def chat(
                     response_text = think_prefix.group(2).strip()
 
         # Final cleanup for any stray tokens in the response
-        response_text = re.sub(r"<(/?)(thinking|unused94|unused95|thought)>", "", response_text, flags=re.IGNORECASE).strip()
+        response_text = re.sub(r"<(/?)(thinking|unused94|unused95|thought|thought_process|thinking_process)>", "", response_text, flags=re.IGNORECASE).strip()
+        # Also clean up common markdown-style headers that the model might use for thinking
+        response_text = re.sub(r"^(###\s+Thinking|Thinking:|Thought:)\s*", "", response_text, flags=re.IGNORECASE | re.MULTILINE).strip()
 
         return {
             "response": response_text,
