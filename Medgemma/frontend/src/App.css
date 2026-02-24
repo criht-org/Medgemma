@@ -65,6 +65,7 @@ body {
   font-size: 1.4rem;
   font-weight: 800;
   background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent-3));
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -175,6 +176,7 @@ body {
   font-size: 1.5rem;
   font-weight: 700;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -212,6 +214,7 @@ body {
   font-size: 3.5rem;
   font-weight: 800;
   background: linear-gradient(135deg, var(--accent), var(--accent-2), var(--accent-3));
+  background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   line-height: 1;
@@ -276,7 +279,9 @@ body {
   flex-direction: row-reverse;
 }
 
-.msg-row.assistant {}
+.msg-row.assistant {
+  flex-direction: row;
+}
 
 .avatar {
   width: 34px;
@@ -397,7 +402,10 @@ body {
   gap: 0.5rem;
 }
 
-.dicom-meta-item {}
+.dicom-meta-item {
+  display: flex;
+  flex-direction: column;
+}
 
 .dicom-meta-label {
   font-size: 0.68rem;
@@ -799,10 +807,48 @@ body {
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
+  padding: 2.5rem;
   width: 100%;
   max-width: 500px;
-  padding: 2rem;
-  box-shadow: var(--shadow);
+  position: relative;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* ─── Onboarding Specific ─── */
+.onboarding-overlay {
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(12px);
+  z-index: 3000;
+  /* Higher than everything */
+}
+
+.onboarding-content {
+  max-width: 440px;
+  padding: 40px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.form-group label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.modal-input {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  transition: all 0.2s ease;
+}
+
+.modal-input:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 4px rgba(91, 140, 248, 0.1);
 }
 
 .modal-header h2 {
@@ -834,4 +880,144 @@ body {
   font-size: 0.8rem;
   margin-top: 0.5rem;
   animation: pulse 2s infinite;
+}
+
+/* ─── Onboarding Modal ─── */
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.onboarding-card {
+  background: var(--bg-surface);
+  width: 100%;
+  max-width: 440px;
+  padding: 2.5rem;
+  border-radius: 20px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.1);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.onboarding-logo {
+  font-family: 'Outfit', sans-serif;
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+  margin-bottom: 0.5rem;
+}
+
+.onboarding-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 0.75rem;
+}
+
+.onboarding-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+  line-height: 1.5;
+}
+
+.onboarding-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.onboarding-input-group {
+  text-align: left;
+}
+
+.onboarding-input-group label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  margin-bottom: 0.4rem;
+  margin-left: 0.2rem;
+}
+
+.onboarding-input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  background: var(--bg-main);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 0.95rem;
+  transition: all 0.2s;
+}
+
+.onboarding-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(91, 140, 248, 0.1);
+}
+
+.onboarding-btn {
+  margin-top: 1rem;
+  padding: 0.9rem;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, opacity 0.2s;
+}
+
+.onboarding-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.onboarding-btn:active {
+  transform: translateY(0);
+}
+
+/* ─── Thinking Process ─── */
+.thinking-container {
+  margin-bottom: 0.75rem;
+}
+
+.thinking-toggle {
+  background: none;
+  border: none;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  transition: color 0.2s;
+}
+
+.thinking-toggle:hover {
+  color: var(--accent);
+}
+
+.thinking-trace {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.78rem;
+  background: rgba(91, 140, 248, 0.05);
+  border-left: 2px solid var(--accent);
+  padding: 10px 14px;
+  border-radius: 4px;
+  color: var(--text-subtle);
+  margin-top: 4px;
+  white-space: pre-wrap;
+  line-height: 1.5;
 }

@@ -135,10 +135,22 @@ def load_medgemma_service(name: str, token: str):
             # For vision support, we often need the processor from the base model 
             # if not fully included in the GGUF repo
             processor = AutoProcessor.from_pretrained(name, token=token, use_fast=False)
-        except:
-            # Fallback to the non-GGUF version for processor if needed
-            base_model = name.replace("-GGUF", "")
-            processor = AutoProcessor.from_pretrained(base_model, token=token, use_fast=False)
+        except Exception as e:
+            print(f"Warning: Could not load processor from {name}: {e}. Trying fallback to base Google model...")
+            # Fallback to the non-GGUF version for processor (Gemma 3 or MedGemma 1.5)
+            if "4b" in name:
+                base_model = "google/medgemma-1.5-4b-it"
+            elif "1b" in name:
+                base_model = "google/medgemma-1.5-1b-it"
+            else:
+                base_model = "google/gemma-3-4b-it" # Final fallback
+                
+            try:
+                print(f"Attempting processor fallback to: {base_model}")
+                processor = AutoProcessor.from_pretrained(base_model, token=token, use_fast=False)
+            except Exception as e2:
+                print(f"Critical error: Processor fallback failed for {base_model}: {e2}")
+                processor = None
 
         model = AutoModelForCausalLM.from_pretrained(
             name,
@@ -438,7 +450,13 @@ async def chat(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        error_trace = traceback.format_exc()
+        print("\n" + "!"*60)
+        print("❌ CHAT ERROR:")
+        print(error_trace)
+        print("!"*60 + "\n")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}\n\nTraceback:\n{error_trace}")
 
 @app.post("/report")
 async def report(req: ReportRequest):

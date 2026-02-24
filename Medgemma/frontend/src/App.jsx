@@ -139,8 +139,61 @@ function TypingBubble() {
 
 // Thinking Block removed for cleaner clinical view
 
+// ─── Onboarding Modal ────────────────────────────────────────────────────────
+function OnboardingModal({ onComplete }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (name.trim() && email.trim()) {
+      onComplete(name, email);
+    }
+  };
+
+  return (
+    <div className="modal-overlay onboarding-overlay">
+      <div className="modal-content onboarding-content">
+        <div className="modal-header">
+          <div className="welcome-logo" style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>INNOVDOC AI</div>
+          <h2>Welcome to Professional Assistant</h2>
+          <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+            Please provide your details to personalize your clinical reports.
+          </p>
+        </div>
+        <form onSubmit={handleSubmit} className="modal-body">
+          <div className="form-group">
+            <label>Full Name</label>
+            <input
+              required
+              className="sidebar-input modal-input"
+              placeholder="Dr. Jane Smith"
+              value={name}
+              onChange={e => setName(e.target.value)}
+            />
+          </div>
+          <div className="form-group" style={{ marginTop: '1rem' }}>
+            <label>Email ID</label>
+            <input
+              required
+              type="email"
+              className="sidebar-input modal-input"
+              placeholder="jane.smith@hospital.org"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+            />
+          </div>
+          <button type="submit" className="btn-primary" style={{ width: '100%', marginTop: '1.5rem', padding: '12px' }}>
+            Get Started
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Report Modal ─────────────────────────────────────────────────────────────
-function ReportModal({ isOpen, onClose, onSubmit, isSubmitting, onDownload }) {
+function ReportModal({ isOpen, onClose, isSubmitting, onDownload }) {
   const [comment, setComment] = useState('');
   if (!isOpen) return null;
 
@@ -148,26 +201,23 @@ function ReportModal({ isOpen, onClose, onSubmit, isSubmitting, onDownload }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <h2>Report Errors</h2>
+          <h2>Clinical Case Report</h2>
           <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-            Report inaccuracies to the developer and download the case data for manual sharing.
+            Download a professional PDF report of this case.
           </p>
         </div>
         <div className="modal-body">
           <textarea
             className="report-textarea"
-            placeholder="Describe the error or inaccuracy..."
+            placeholder="Add any additional clinical observations or comments..."
             value={comment}
             onChange={e => setComment(e.target.value)}
           />
         </div>
         <div className="modal-footer">
           <button className="btn-secondary" onClick={onClose} disabled={isSubmitting}>Cancel</button>
-          <button className="btn-secondary" style={{ color: 'var(--accent)' }} onClick={() => onDownload(comment)} disabled={isSubmitting}>
-            📥 Download Case
-          </button>
-          <button className="btn-primary" onClick={() => onSubmit(comment)} disabled={isSubmitting}>
-            {isSubmitting ? 'Submitting...' : 'Submit Report'}
+          <button className="btn-primary" style={{ flex: 1 }} onClick={() => onDownload(comment)} disabled={isSubmitting}>
+            📥 Download PDF Case
           </button>
         </div>
       </div>
@@ -176,6 +226,7 @@ function ReportModal({ isOpen, onClose, onSubmit, isSubmitting, onDownload }) {
 }
 
 function MessageRow({ msg, onReport }) {
+  const [showThinking, setShowThinking] = useState(false);
   const isUser = msg.role === 'user';
   const isLocalization = msg.isLocalization;
   const isConsultation = msg.isConsultation;
@@ -199,6 +250,18 @@ function MessageRow({ msg, onReport }) {
             📄 PDF: {msg.pdf}
           </div>
         )}
+        {msg.thinking && (
+          <div className="thinking-container">
+            <button className="thinking-toggle" onClick={() => setShowThinking(!showThinking)}>
+              {showThinking ? '▼ Hide Reasoning' : '▶ Show Reasoning trace'}
+            </button>
+            {showThinking && (
+              <div className="thinking-trace">
+                {msg.thinking}
+              </div>
+            )}
+          </div>
+        )}
         {msg.content && (
           <div className={`bubble ${isLocalization ? 'bubble-mono' : ''} ${isConsultation && !isUser ? 'bubble-consultation' : ''}`}>
             {msg.content}
@@ -207,9 +270,9 @@ function MessageRow({ msg, onReport }) {
         {isAssistant && !isUser && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button className="report-btn" onClick={() => onReport(msg)}>
-              🚩 Report Errors
+              🚩 Report/Export Case
             </button>
-            {msg.reported && <span className="report-success-msg">✓ Reported</span>}
+            {msg.reported && <span className="report-success-msg">✓ Exported</span>}
           </div>
         )}
       </div>
@@ -255,11 +318,9 @@ export default function App() {
   const [activeFile, setActiveFile] = useState(null); // Persist file across turns
   const [isTyping, setIsTyping] = useState(false);
   const [backendUrl, setBackendUrl] = useState(localStorage.getItem('backend_url') || '');
-  const [hfToken, setHfToken] = useState(localStorage.getItem('hf_token') || '');
-  const [modelName, setModelName] = useState('google/medgemma-1.5-4b-it');
-  const [analysisMode, setAnalysisMode] = useState('General Analysis');
-  const [backendStatus, setBackendStatus] = useState('unchecked'); // unchecked | online | offline
-  const [isDragging, setIsDragging] = useState(false);
+  const [userName, setUserName] = useState(localStorage.getItem('user_name') || '');
+  const [userEmail, setUserEmail] = useState(localStorage.getItem('user_email') || '');
+  const [showOnboarding, setShowOnboarding] = useState(!localStorage.getItem('user_name'));
   const [reportingMsg, setReportingMsg] = useState(null); // The message object being reported
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
@@ -278,6 +339,14 @@ export default function App() {
   // Persist settings
   useEffect(() => { localStorage.setItem('backend_url', backendUrl); }, [backendUrl]);
   useEffect(() => { localStorage.setItem('hf_token', hfToken); }, [hfToken]);
+
+  const handleOnboarding = (name, email) => {
+    setUserName(name);
+    setUserEmail(email);
+    localStorage.setItem('user_name', name);
+    localStorage.setItem('user_email', email);
+    setShowOnboarding(false);
+  };
 
   // Normalize URL — strip trailing slash
   const apiUrl = (path) => `${backendUrl.replace(/\/+$/, '')}${path}`;
@@ -396,6 +465,7 @@ export default function App() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: data.response,
+        thinking: data.thinking,
         full_output: data.full_output,
         prompt: prompt,
         isLocalization: analysisMode === 'Localization',
@@ -452,24 +522,104 @@ export default function App() {
 
   const handleDownloadReport = (comment) => {
     if (!reportingMsg) return;
-    const payload = {
-      prompt: reportingMsg.prompt || "No prompt stored",
-      response: reportingMsg.content,
-      thinking: reportingMsg.thinking,
-      user_comment: comment,
-      metadata: {
-        model: modelName,
-        mode: analysisMode,
-        timestamp: new Date().toISOString()
-      }
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `medgemma_err_report_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+
+    // Check if jsPDF is available from window
+    const { jsPDF } = window.jspdf;
+    if (!jsPDF) {
+      alert("PDF library not loaded yet. Please wait a moment.");
+      return;
+    }
+
+    const doc = new jsPDF();
+    const margin = 20;
+    let y = margin;
+
+    // Header
+    doc.setFontSize(22);
+    doc.setTextColor(91, 140, 248); // Accent color
+    doc.text("INNOVDOC AI - Clinical Case Report", margin, y);
+    y += 15;
+
+    // User Info
+    doc.setFontSize(10);
+    doc.setTextColor(100);
+    doc.text(`Practitioner: ${userName} (${userEmail})`, margin, y);
+    doc.text(`Date: ${new Date().toLocaleString()}`, doc.internal.pageSize.width - margin - 50, y);
+    y += 10;
+    doc.setDrawColor(230);
+    doc.line(margin, y, doc.internal.pageSize.width - margin, y);
+    y += 15;
+
+    // Case Information
+    doc.setFontSize(14);
+    doc.setTextColor(30);
+    doc.text("Case Metadata", margin, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.text(`Model: ${modelName}`, margin + 5, y);
+    y += 6;
+    doc.text(`Analysis Mode: ${analysisMode}`, margin + 5, y);
+    y += 12;
+
+    // Prompt
+    doc.setFontSize(14);
+    doc.text("Clinical Query (Prompt)", margin, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.setTextColor(60);
+    const splitPrompt = doc.splitTextToSize(reportingMsg.prompt || "No prompt provided", doc.internal.pageSize.width - margin * 2 - 10);
+    doc.text(splitPrompt, margin + 5, y);
+    y += (splitPrompt.length * 5) + 10;
+
+    // Response
+    doc.setFontSize(14);
+    doc.setTextColor(30);
+    doc.text("AI Response / Impression", margin, y);
+    y += 8;
+    doc.setFontSize(10);
+    doc.setTextColor(60);
+    const splitResp = doc.splitTextToSize(reportingMsg.content || "No response provided", doc.internal.pageSize.width - margin * 2 - 10);
+
+    // Check for page overflow
+    if (y + splitResp.length * 5 > 280) { doc.addPage(); y = margin; }
+    doc.text(splitResp, margin + 5, y);
+    y += (splitResp.length * 5) + 15;
+
+    // Thinking Trace
+    if (reportingMsg.thinking) {
+      if (y > 240) { doc.addPage(); y = margin; }
+      doc.setFontSize(14);
+      doc.setTextColor(30);
+      doc.text("Reasoning Trace (Thinking)", margin, y);
+      y += 8;
+      doc.setFontSize(9);
+      doc.setTextColor(100);
+      const splitThinking = doc.splitTextToSize(reportingMsg.thinking, doc.internal.pageSize.width - margin * 2 - 10);
+      doc.text(splitThinking, margin + 5, y);
+      y += (splitThinking.length * 4) + 15;
+    }
+
+    // User Comment
+    if (comment) {
+      if (y > 250) { doc.addPage(); y = margin; }
+      doc.setFontSize(14);
+      doc.setTextColor(30);
+      doc.text("Practitioner Observations", margin, y);
+      y += 8;
+      doc.setFontSize(10);
+      doc.setTextColor(40);
+      const splitComment = doc.splitTextToSize(comment, doc.internal.pageSize.width - margin * 2 - 10);
+      doc.text(splitComment, margin + 5, y);
+    }
+
+    // Footer
+    doc.setFontSize(8);
+    doc.setTextColor(150);
+    doc.text("Confidential Clinical Record • www.c-riht.org", doc.internal.pageSize.width / 2, 285, { align: 'center' });
+
+    doc.save(`MedGemma_Case_${Date.now()}.pdf`);
+    setMessages(prev => prev.map(m => m === reportingMsg ? { ...m, reported: true } : m));
+    setReportingMsg(null);
   };
 
   const handleKeyDown = (e) => {
@@ -481,6 +631,8 @@ export default function App() {
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div className="app-container" onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
+      {showOnboarding && <OnboardingModal onComplete={handleOnboarding} />}
+
       {isDragging && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(91,140,248,0.1)', border: '2px dashed var(--accent)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.5rem', color: 'var(--accent)', pointerEvents: 'none' }}>
           Drop file to attach
@@ -573,7 +725,6 @@ export default function App() {
         <ReportModal
           isOpen={!!reportingMsg}
           onClose={() => setReportingMsg(null)}
-          onSubmit={handleReportSubmit}
           isSubmitting={isSubmittingReport}
           onDownload={handleDownloadReport}
         />
